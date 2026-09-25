@@ -1,7 +1,9 @@
 streamlit
-openai
-requests
-pandas
+groq
+python-dotenv
+arxiv
 numpy
-scipy
+pandas
 scikit-learn
+matplotlib
+scipy
