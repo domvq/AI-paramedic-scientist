@@ -5,6 +5,9 @@ import arxiv
 from dotenv import load_dotenv
 from groq import Groq
 
+load_dotenv()
+
+api_key = os.getenv("GROQ_API_KEY")
 
 if not api_key:
     raise RuntimeError(
@@ -449,4 +452,3 @@ def clean_python_code(code):
                 code = "\n".join(lines[1:])
 
     return code.strip()
-
