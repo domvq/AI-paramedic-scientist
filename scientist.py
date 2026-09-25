@@ -9,22 +9,23 @@ load_dotenv()
 
 api_key = os.getenv("GROQ_API_KEY")
 
-if not api_key:
-    raise RuntimeError(
-        "GROQ_API_KEY was not found. "
-        "Create a .env file containing GROQ_API_KEY=your_key"
-    )
+# Don't crash during import.
+# This lets Streamlit start and gives us a clearer error later.
+client = None
 
-client = Groq(api_key=api_key)
+if api_key:
+    client = Groq(api_key=api_key)
 
 MODEL = "openai/gpt-oss-120b"
 
 
-# ============================================================
-# AI
-# ============================================================
-
 def ask_scientist(prompt):
+    if client is None:
+        raise RuntimeError(
+            "GROQ_API_KEY is not configured. "
+            "Add GROQ_API_KEY to Streamlit Cloud Secrets."
+        )
+
     response = client.chat.completions.create(
         model=MODEL,
         messages=[
@@ -32,9 +33,7 @@ def ask_scientist(prompt):
                 "role": "system",
                 "content": (
                     "You are a rigorous AI scientific research assistant. "
-                    "Follow the requested output format exactly. "
-                    "When JSON is requested, return valid JSON with "
-                    "properly escaped quotation marks."
+                    "Follow the requested output format exactly."
                 )
             },
             {
@@ -47,6 +46,7 @@ def ask_scientist(prompt):
     )
 
     return response.choices[0].message.content
+
 
 
 
