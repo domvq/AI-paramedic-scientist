@@ -24,15 +24,17 @@ MODEL = "openai/gpt-oss-120b"
 # AI
 # ============================================================
 
-def ask_scientist(prompt, json_mode=False):
-    kwargs = {
-        "model": MODEL,
-        "messages": [
+def ask_scientist(prompt):
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=[
             {
                 "role": "system",
                 "content": (
                     "You are a rigorous AI scientific research assistant. "
-                    "Follow the requested output format exactly."
+                    "Follow the requested output format exactly. "
+                    "When JSON is requested, return valid JSON with "
+                    "properly escaped quotation marks."
                 )
             },
             {
@@ -40,19 +42,12 @@ def ask_scientist(prompt, json_mode=False):
                 "content": prompt
             }
         ],
-        "max_tokens": 1500,
-        "temperature": 0.2,
-    }
-
-    # Tell Groq that we require JSON when appropriate.
-    if json_mode:
-        kwargs["response_format"] = {
-            "type": "json_object"
-        }
-
-    response = client.chat.completions.create(**kwargs)
+        max_tokens=2000,
+        temperature=0.1
+    )
 
     return response.choices[0].message.content
+
 
 
 # ============================================================
