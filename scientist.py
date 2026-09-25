@@ -278,13 +278,7 @@ Return ONLY valid JSON with exactly these keys:
 }}
 """
 
-    result = ask_scientist(
-        prompt,
-        json_mode=True
-    )
-
-    return parse_json(result)
-
+   result = ask_scientist(prompt)
 
 # ============================================================
 # GENERATE EXPERIMENT
