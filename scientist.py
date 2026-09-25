@@ -9,135 +9,123 @@ load_dotenv()
 
 api_key = os.getenv("GROQ_API_KEY")
 
-# Don't crash during import.
-# This lets Streamlit start and gives us a clearer error later.
-client = None
+if not api_key:
+    raise RuntimeError(
+        "GROQ_API_KEY is missing. "
+        "Add it to Streamlit Cloud Secrets."
+    )
 
-if api_key:
-    client = Groq(api_key=api_key)
+client = Groq(api_key=api_key)
 
 MODEL = "openai/gpt-oss-120b"
 
 
-def ask_scientist(prompt):
-    if client is None:
-        raise RuntimeError(
-            "GROQ_API_KEY is not configured. "
-            "Add GROQ_API_KEY to Streamlit Cloud Secrets."
-        )
+# ============================================================
+# AI
+# ============================================================
 
+def ask_scientist(prompt):
     response = client.chat.completions.create(
         model=MODEL,
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "You are a rigorous AI scientific research assistant. "
+                    "You are a rigorous scientific research assistant. "
                     "Follow the requested output format exactly."
-                )
+                ),
             },
             {
                 "role": "user",
-                "content": prompt
-            }
+                "content": prompt,
+            },
         ],
         max_tokens=2000,
-        temperature=0.1
+        temperature=0.1,
     )
 
     return response.choices[0].message.content
 
 
-
-
 # ============================================================
-# JSON PARSER
+# JSON
 # ============================================================
 
 def parse_json(result):
-    if result is None:
+    if not result:
         raise ValueError("AI returned an empty response.")
 
     cleaned = str(result).strip()
 
-    # Remove Markdown code fences.
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
+    # Remove Markdown fences
+    cleaned = cleaned.replace("```json", "")
+    cleaned = cleaned.replace("```", "")
+    cleaned = cleaned.strip()
 
-        if lines:
-            lines = lines[1:]
-
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-
-        cleaned = "\n".join(lines).strip()
-
-    # First attempt: entire response.
+    # Try entire response
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
 
-    # Second attempt: find JSON object.
+    # Try JSON object
     start = cleaned.find("{")
     end = cleaned.rfind("}")
 
     if start >= 0 and end > start:
-        candidate = cleaned[start:end + 1]
-
         try:
-            return json.loads(candidate)
+            return json.loads(
+                cleaned[start:end + 1]
+            )
         except json.JSONDecodeError:
             pass
 
-    # Third attempt: find JSON array.
+    # Try JSON array
     start = cleaned.find("[")
     end = cleaned.rfind("]")
 
     if start >= 0 and end > start:
-        candidate = cleaned[start:end + 1]
-
         try:
-            return json.loads(candidate)
+            return json.loads(
+                cleaned[start:end + 1]
+            )
         except json.JSONDecodeError:
             pass
 
-    # Give useful debugging information instead of the generic
-    # "AI returned invalid JSON".
-    preview = cleaned[:3000]
-
     raise ValueError(
         "AI returned invalid JSON.\n\n"
-        "Actual AI response:\n"
-        f"{preview}"
+        f"AI response:\n{cleaned[:5000]}"
     )
 
 
 # ============================================================
-# LITERATURE SEARCH
+# LITERATURE
 # ============================================================
 
 def search_papers(query, max_results=3):
     search = arxiv.Search(
         query=query,
         max_results=max_results,
-        sort_by=arxiv.SortCriterion.Relevance
+        sort_by=arxiv.SortCriterion.Relevance,
     )
 
     arxiv_client = arxiv.Client()
+
     papers = []
 
     for result in arxiv_client.results(search):
-        papers.append({
-            "title": result.title,
-            "authors": [
-                author.name
-                for author in result.authors[:5]
-            ],
-            "abstract": result.summary[:1000],
-            "url": result.entry_id,
-            "published": str(result.published)
-        })
+        papers.append(
+            {
+                "title": result.title,
+                "authors": [
+                    author.name
+                    for author in result.authors[:5]
+                ],
+                "abstract": result.summary[:1000],
+                "url": result.entry_id,
+                "published": str(result.published),
+            }
+        )
 
     return papers
 
@@ -169,7 +157,7 @@ def generate_hypotheses(question, papers=None):
     literature = format_papers(papers or [])
 
     prompt = f"""
-Generate exactly 3 testable scientific hypotheses.
+You are an AI scientific research assistant.
 
 Research question:
 {question[:2000]}
@@ -177,80 +165,68 @@ Research question:
 Relevant literature:
 {literature}
 
-Return a JSON OBJECT with a single key called "hypotheses".
+Generate exactly 3 testable hypotheses.
 
-The value of "hypotheses" must be an array containing exactly
-3 objects.
+Base the hypotheses on the research question and supplied
+literature.
 
-Each object MUST contain these keys:
+Do not invent claims that are presented as established facts.
 
-- hypothesis
-- reasoning
-- experiment
-- expected_result
-- falsification
-- novelty
+Return ONLY a valid JSON array.
 
-Example structure:
+The JSON must have exactly this structure:
 
-{{
-  "hypotheses": [
-    {{
-      "hypothesis": "Example hypothesis",
-      "reasoning": "Scientific reasoning",
-      "experiment": "Proposed experiment",
-      "expected_result": "Expected result",
-      "falsification": "What result would falsify it",
-      "novelty": "Why this is potentially novel"
-    }},
-    {{
-      "hypothesis": "Example hypothesis 2",
-      "reasoning": "Scientific reasoning",
-      "experiment": "Proposed experiment",
-      "expected_result": "Expected result",
-      "falsification": "What result would falsify it",
-      "novelty": "Why this is potentially novel"
-    }},
-    {{
-      "hypothesis": "Example hypothesis 3",
-      "reasoning": "Scientific reasoning",
-      "experiment": "Proposed experiment",
-      "expected_result": "Expected result",
-      "falsification": "What result would falsify it",
-      "novelty": "Why this is potentially novel"
-    }}
-  ]
-}}
+[
+  {{
+    "hypothesis": "string",
+    "reasoning": "string",
+    "experiment": "string",
+    "expected_result": "string",
+    "falsification": "string",
+    "novelty": "string"
+  }},
+  {{
+    "hypothesis": "string",
+    "reasoning": "string",
+    "experiment": "string",
+    "expected_result": "string",
+    "falsification": "string",
+    "novelty": "string"
+  }},
+  {{
+    "hypothesis": "string",
+    "reasoning": "string",
+    "experiment": "string",
+    "expected_result": "string",
+    "falsification": "string",
+    "novelty": "string"
+  }}
+]
 
-Return ONLY valid JSON.
+Return JSON only.
 """
 
-    result = ask_scientist(
-        prompt,
-        json_mode=True
-    )
+    result = ask_scientist(prompt)
 
     parsed = parse_json(result)
 
-    # Handle the new object format.
-    if isinstance(parsed, dict) and "hypotheses" in parsed:
-        return parsed["hypotheses"]
+    if not isinstance(parsed, list):
+        raise ValueError(
+            "Expected a JSON array of hypotheses."
+        )
 
-    # Also tolerate the old array format.
-    if isinstance(parsed, list):
-        return parsed
-
-    raise ValueError(
-        "AI returned JSON, but it did not contain "
-        "a 'hypotheses' array."
-    )
+    return parsed
 
 
 # ============================================================
 # CHOOSE EXPERIMENT
 # ============================================================
 
-def choose_experiment(question, hypotheses, previous_results=None):
+def choose_experiment(
+    question,
+    hypotheses,
+    previous_results=None,
+):
     previous_results = previous_results or []
 
     prompt = f"""
@@ -267,24 +243,33 @@ Previous experiments:
 
 Choose the most informative next experiment.
 
-Return ONLY valid JSON with exactly these keys:
+Return ONLY valid JSON.
+
+Required structure:
 
 {{
-  "selected_hypothesis": "...",
-  "reason": "...",
-  "experiment_goal": "...",
-  "expected_result": "...",
-  "success_metric": "..."
+  "selected_hypothesis": "string",
+  "reason": "string",
+  "experiment_goal": "string",
+  "expected_result": "string",
+  "success_metric": "string"
 }}
 """
 
-   result = ask_scientist(prompt)
+    return parse_json(
+        ask_scientist(prompt)
+    )
+
 
 # ============================================================
 # GENERATE EXPERIMENT
 # ============================================================
 
-def generate_experiment(question, hypothesis, experiment_goal):
+def generate_experiment(
+    question,
+    hypothesis,
+    experiment_goal,
+):
     prompt = f"""
 You are an AI scientist.
 
@@ -300,12 +285,14 @@ Experiment goal:
 Write a complete Python experiment.
 
 Allowed libraries:
+
 numpy
 pandas
 scikit-learn
 matplotlib
 
 Requirements:
+
 - Use a built-in sklearn dataset.
 - Include a baseline.
 - Print numerical metrics.
@@ -313,6 +300,7 @@ Requirements:
 - Finish within 30 seconds.
 - Do not access the internet.
 - Do not access the filesystem.
+- Do not use subprocess.
 - Return ONLY Python code.
 """
 
@@ -320,10 +308,14 @@ Requirements:
 
 
 # ============================================================
-# ANALYSIS
+# ANALYZE RESULTS
 # ============================================================
 
-def analyze_results(question, hypothesis, output):
+def analyze_results(
+    question,
+    hypothesis,
+    output,
+):
     prompt = f"""
 You are a scientific reviewer.
 
@@ -346,13 +338,14 @@ Analyze:
 6. What should be tested next?
 
 Do not claim that one experiment proves a scientific theory.
+Only discuss results actually contained in the experiment output.
 """
 
     return ask_scientist(prompt)
 
 
 # ============================================================
-# SAVE EXPERIMENT
+# SAVE
 # ============================================================
 
 def save_experiment(
@@ -361,9 +354,12 @@ def save_experiment(
     hypothesis,
     code,
     output,
-    analysis
+    analysis,
 ):
-    os.makedirs("experiments", exist_ok=True)
+    os.makedirs(
+        "experiments",
+        exist_ok=True,
+    )
 
     filename = (
         f"experiments/"
@@ -376,11 +372,19 @@ def save_experiment(
         "hypothesis": hypothesis,
         "code": code,
         "output": output,
-        "analysis": analysis
+        "analysis": analysis,
     }
 
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    with open(
+        filename,
+        "w",
+        encoding="utf-8",
+    ) as f:
+        json.dump(
+            data,
+            f,
+            indent=2,
+        )
 
     return filename
 
@@ -389,7 +393,12 @@ def save_experiment(
 # FINAL REPORT
 # ============================================================
 
-def generate_final_report(question, papers, hypotheses, history):
+def generate_final_report(
+    question,
+    papers,
+    hypotheses,
+    history,
+):
     prompt = f"""
 You are a rigorous scientific reviewer.
 
@@ -421,7 +430,9 @@ Use:
 # Future Experiments
 
 Only report findings contained in the supplied results.
+
 Do not invent numerical results.
+
 Do not claim causation without evidence.
 
 Return ONLY Markdown.
@@ -447,8 +458,11 @@ def clean_python_code(code):
 
             if lines and lines[0].strip().lower() in (
                 "python",
-                "py"
+                "py",
             ):
-                code = "\n".join(lines[1:])
+                code = "\n".join(
+                    lines[1:]
+                )
 
     return code.strip()
+
