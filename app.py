@@ -26,6 +26,38 @@ st.set_page_config(
 )
 
 
+from ems.models import PatientCase, VitalSigns
+from ems.safety import research_disclaimer
+
+import os
+import subprocess
+import tempfile
+
+import streamlit as st
+
+
+# ------------------------------------------------------------
+# DIAGNOSTIC IMPORT
+# ------------------------------------------------------------
+
+try:
+    from scientist import (
+        search_papers,
+        generate_hypotheses,
+        choose_experiment,
+        generate_experiment,
+        analyze_results,
+        save_experiment,
+        generate_final_report,
+        clean_python_code,
+    )
+
+except Exception as e:
+    st.error("Could not import scientist.py")
+    st.exception(e)
+    st.stop()
+
+
 # ============================================================
 # SESSION STATE
 # ============================================================
