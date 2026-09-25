@@ -1,7 +1,6 @@
-
 from ems.models import PatientCase, VitalSigns
-from ems.pico import build_pico_prompt
 from ems.safety import research_disclaimer
+
 import os
 import subprocess
 import tempfile
