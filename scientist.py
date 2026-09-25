@@ -1,4 +1,5 @@
-﻿import os
+
+import os
 import json
 import arxiv
 from dotenv import load_dotenv
@@ -6,64 +7,120 @@ from groq import Groq
 
 load_dotenv()
 
-client = Groq(
-    api_key=os.getenv("GROQ_API_KEY")
-)
+api_key = os.getenv("GROQ_API_KEY")
+
+if not api_key:
+    raise RuntimeError(
+        "GROQ_API_KEY was not found. "
+        "Create a .env file containing GROQ_API_KEY=your_key"
+    )
+
+client = Groq(api_key=api_key)
 
 MODEL = "openai/gpt-oss-120b"
 
 
-def ask_scientist(prompt):
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[
+# ============================================================
+# AI
+# ============================================================
+
+def ask_scientist(prompt, json_mode=False):
+    kwargs = {
+        "model": MODEL,
+        "messages": [
             {
                 "role": "system",
-                "content": "You are a rigorous AI scientific research assistant."
+                "content": (
+                    "You are a rigorous AI scientific research assistant. "
+                    "Follow the requested output format exactly."
+                )
             },
             {
                 "role": "user",
                 "content": prompt
             }
         ],
-        max_tokens=1500,
-        temperature=0.2
-    )
+        "max_tokens": 1500,
+        "temperature": 0.2,
+    }
+
+    # Tell Groq that we require JSON when appropriate.
+    if json_mode:
+        kwargs["response_format"] = {
+            "type": "json_object"
+        }
+
+    response = client.chat.completions.create(**kwargs)
 
     return response.choices[0].message.content
 
 
-def parse_json(result):
-    cleaned = str(result).strip()
-    cleaned = cleaned.replace("```json", "")
-    cleaned = cleaned.replace("```", "")
-    cleaned = cleaned.strip()
+# ============================================================
+# JSON PARSER
+# ============================================================
 
+def parse_json(result):
+    if result is None:
+        raise ValueError("AI returned an empty response.")
+
+    cleaned = str(result).strip()
+
+    # Remove Markdown code fences.
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+
+        if lines:
+            lines = lines[1:]
+
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+
+        cleaned = "\n".join(lines).strip()
+
+    # First attempt: entire response.
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
 
+    # Second attempt: find JSON object.
     start = cleaned.find("{")
     end = cleaned.rfind("}")
 
     if start >= 0 and end > start:
+        candidate = cleaned[start:end + 1]
+
         try:
-            return json.loads(cleaned[start:end + 1])
+            return json.loads(candidate)
         except json.JSONDecodeError:
             pass
 
+    # Third attempt: find JSON array.
     start = cleaned.find("[")
     end = cleaned.rfind("]")
 
     if start >= 0 and end > start:
+        candidate = cleaned[start:end + 1]
+
         try:
-            return json.loads(cleaned[start:end + 1])
+            return json.loads(candidate)
         except json.JSONDecodeError:
             pass
 
-    raise ValueError("AI returned invalid JSON")
+    # Give useful debugging information instead of the generic
+    # "AI returned invalid JSON".
+    preview = cleaned[:3000]
 
+    raise ValueError(
+        "AI returned invalid JSON.\n\n"
+        "Actual AI response:\n"
+        f"{preview}"
+    )
+
+
+# ============================================================
+# LITERATURE SEARCH
+# ============================================================
 
 def search_papers(query, max_results=3):
     search = arxiv.Search(
@@ -109,11 +166,15 @@ Abstract: {paper.get("abstract", "")[:1000]}
     return "\n".join(output)
 
 
+# ============================================================
+# HYPOTHESES
+# ============================================================
+
 def generate_hypotheses(question, papers=None):
     literature = format_papers(papers or [])
 
     prompt = f"""
-You are an AI research scientist.
+Generate exactly 3 testable scientific hypotheses.
 
 Research question:
 {question[:2000]}
@@ -121,25 +182,78 @@ Research question:
 Relevant literature:
 {literature}
 
-Generate exactly 3 testable hypotheses.
+Return a JSON OBJECT with a single key called "hypotheses".
 
-Return ONLY JSON:
+The value of "hypotheses" must be an array containing exactly
+3 objects.
 
-[
-  {{
-    "hypothesis": "...",
-    "reasoning": "...",
-    "experiment": "...",
-    "expected_result": "...",
-    "falsification": "...",
-    "novelty": "..."
-  }}
-]
+Each object MUST contain these keys:
+
+- hypothesis
+- reasoning
+- experiment
+- expected_result
+- falsification
+- novelty
+
+Example structure:
+
+{{
+  "hypotheses": [
+    {{
+      "hypothesis": "Example hypothesis",
+      "reasoning": "Scientific reasoning",
+      "experiment": "Proposed experiment",
+      "expected_result": "Expected result",
+      "falsification": "What result would falsify it",
+      "novelty": "Why this is potentially novel"
+    }},
+    {{
+      "hypothesis": "Example hypothesis 2",
+      "reasoning": "Scientific reasoning",
+      "experiment": "Proposed experiment",
+      "expected_result": "Expected result",
+      "falsification": "What result would falsify it",
+      "novelty": "Why this is potentially novel"
+    }},
+    {{
+      "hypothesis": "Example hypothesis 3",
+      "reasoning": "Scientific reasoning",
+      "experiment": "Proposed experiment",
+      "expected_result": "Expected result",
+      "falsification": "What result would falsify it",
+      "novelty": "Why this is potentially novel"
+    }}
+  ]
+}}
+
+Return ONLY valid JSON.
 """
 
-    result = ask_scientist(prompt)
-    return parse_json(result)
+    result = ask_scientist(
+        prompt,
+        json_mode=True
+    )
 
+    parsed = parse_json(result)
+
+    # Handle the new object format.
+    if isinstance(parsed, dict) and "hypotheses" in parsed:
+        return parsed["hypotheses"]
+
+    # Also tolerate the old array format.
+    if isinstance(parsed, list):
+        return parsed
+
+    raise ValueError(
+        "AI returned JSON, but it did not contain "
+        "a 'hypotheses' array."
+    )
+
+
+# ============================================================
+# CHOOSE EXPERIMENT
+# ============================================================
 
 def choose_experiment(question, hypotheses, previous_results=None):
     previous_results = previous_results or []
@@ -158,7 +272,7 @@ Previous experiments:
 
 Choose the most informative next experiment.
 
-Return ONLY JSON:
+Return ONLY valid JSON with exactly these keys:
 
 {{
   "selected_hypothesis": "...",
@@ -169,8 +283,17 @@ Return ONLY JSON:
 }}
 """
 
-    return parse_json(ask_scientist(prompt))
+    result = ask_scientist(
+        prompt,
+        json_mode=True
+    )
 
+    return parse_json(result)
+
+
+# ============================================================
+# GENERATE EXPERIMENT
+# ============================================================
 
 def generate_experiment(question, hypothesis, experiment_goal):
     prompt = f"""
@@ -207,6 +330,10 @@ Requirements:
     return ask_scientist(prompt)
 
 
+# ============================================================
+# ANALYSIS
+# ============================================================
+
 def analyze_results(question, hypothesis, output):
     prompt = f"""
 You are a scientific reviewer.
@@ -221,6 +348,7 @@ Experiment results:
 {output[:4000]}
 
 Analyze:
+
 1. What happened?
 2. Important numbers
 3. Was the hypothesis supported?
@@ -233,6 +361,10 @@ Do not claim that one experiment proves a scientific theory.
 
     return ask_scientist(prompt)
 
+
+# ============================================================
+# SAVE EXPERIMENT
+# ============================================================
 
 def save_experiment(
     question,
@@ -263,6 +395,10 @@ def save_experiment(
 
     return filename
 
+
+# ============================================================
+# FINAL REPORT
+# ============================================================
 
 def generate_final_report(question, papers, hypotheses, history):
     prompt = f"""
@@ -305,6 +441,10 @@ Return ONLY Markdown.
     return ask_scientist(prompt)
 
 
+# ============================================================
+# CLEAN PYTHON
+# ============================================================
+
 def clean_python_code(code):
     code = str(code).strip()
 
@@ -316,7 +456,11 @@ def clean_python_code(code):
 
             lines = code.splitlines()
 
-            if lines and lines[0].strip().lower() in ("python", "py"):
+            if lines and lines[0].strip().lower() in (
+                "python",
+                "py"
+            ):
                 code = "\n".join(lines[1:])
 
     return code.strip()
+
