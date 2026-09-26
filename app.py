@@ -1,3 +1,4 @@
+import sys
 from ems.models import PatientCase, VitalSigns
 from ems.safety import research_disclaimer
 
@@ -130,8 +131,8 @@ def run_experiment_code(code):
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
 
-        result = subprocess.run(
-            ["python", filename],
+       result = subprocess.run(
+           [sys.executable, filename],
             capture_output=True,
             text=True,
             encoding="utf-8",
